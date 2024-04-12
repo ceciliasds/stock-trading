@@ -86,9 +86,269 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
- 
 
-//modals
+void _openTradeModal(String symbol) {
+    print('Opening trade modal'); // Debug print
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Trade $symbol'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    isBuying = true;
+                  });
+                  _showBuyModal(symbol, _buySharesController);
+                },
+                child: Text('Buy'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    isBuying = false;
+                  });
+                  _showSellModal(symbol, _sellSharesController);
+                },
+                child: Text('Sell'),
+              ),
+            ],
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text("Cancel"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+void _showBuyModal(String symbol, TextEditingController controller) {
+  showDialog(
+    context: context,
+    builder: (BuildContext context) {
+      return AlertDialog(
+        title: Text("Buy Stocks"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                hintText: 'Enter number of shares...',
+              ),
+            ),
+            SizedBox(height: 10),
+            FutureBuilder(
+              future: fetchCurrentClosePrice(symbol),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return CircularProgressIndicator();
+                } else if (snapshot.hasError) {
+                  return Text('Error: ${snapshot.error}');
+                } else {
+                  double currentClosePrice = snapshot.data ?? 0.0;
+                  int numberOfShares = int.tryParse(controller.text) ?? 0;
+                  double totalCost = _calculateCost(numberOfShares.toString(), currentClosePrice);
+                  return Text('Total Cost: \$${totalCost.toStringAsFixed(2)}');
+                }
+              },
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              int shares = int.tryParse(controller.text) ?? 0;
+              double currentClosePrice = await fetchCurrentClosePrice(symbol);
+              double cost = _calculateCost(shares.toString(), currentClosePrice);
+
+              if (shares > 0) {
+                // Get the current date and format it
+                String formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+                // Add the purchase details along with the date
+                boughtStocks.add({
+                'symbol': symbol,
+                'shares': shares,
+                'cost': cost,
+                'pricePerStock': currentClosePrice,
+                'type': 'Buy',
+                'date': formattedDate,
+              });
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ProfilePage(
+                    initialMoney: initialMoney,
+                    boughtStocks: boughtStocks,
+                    symbol: symbol,
+                    shares: shares,
+                    totalCost: cost,
+                    type: 'Buy',
+                    maxShares: maxShares,
+                  ),
+                ),
+              );
+                setState(() {
+                  canSell = true;
+                  // Reset state
+                  controller.clear();
+                  symbol = ''; // Reset symbol
+                });
+              }
+              Navigator.of(context).pop();
+            },
+            child: Text("Buy"),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+  void _showSellModal(String symbol, TextEditingController controller) {
+    int totalBoughtShares = boughtStocks.isEmpty
+        ? 0
+        : boughtStocks
+            .where((stock) => stock['symbol'] == symbol && stock['type'] == 'Buy')
+            .map<int>((stock) => stock['shares'])
+            .fold(0, (previousValue, element) => previousValue + element);
+
+    int totalSoldShares = boughtStocks.isEmpty
+        ? 0
+        : boughtStocks
+            .where((stock) => stock['symbol'] == symbol && stock['type'] == 'Sell')
+            .map<int>((stock) => stock['shares'])
+            .fold(0, (previousValue, element) => previousValue + element);
+
+    int maxShares = totalBoughtShares - totalSoldShares;
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text("Sell Stocks"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  hintText: 'Enter number of shares...',
+                ),
+              ),
+              SizedBox(height: 10),
+              Text('Max: $maxShares', style: TextStyle(color: Colors.grey)),
+              SizedBox(height: 10),
+              FutureBuilder(
+                future: fetchCurrentClosePrice(symbol),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return CircularProgressIndicator();
+                  } else if (snapshot.hasError) {
+                    return Text('Error: ${snapshot.error}');
+                  } else {
+                    double currentClosePrice = snapshot.data ?? 0.0;
+                    int numberOfShares = int.tryParse(controller.text) ?? 0;
+                    double totalCost = _calculateCost(numberOfShares.toString(), currentClosePrice);
+                    return Text(
+                      'Total Gain: \$${totalCost.toStringAsFixed(2)}', // Total gain for selling
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                int shares = int.tryParse(controller.text) ?? 0;
+                double currentClosePrice = await fetchCurrentClosePrice(symbol);
+                double totalCost = _calculateCost(shares.toString(), currentClosePrice);
+
+                if (shares > 0 && shares <= maxShares) {
+                  // Get the current date and format it
+                  String formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+                  boughtStocks.add({
+                    'symbol': symbol,
+                    'shares': shares, // Negative shares indicate selling
+                    'cost': -totalCost, // Negative cost for selling
+                    'pricePerStock': currentClosePrice,
+                    'type': 'Sell',
+                    'date': formattedDate, // Include the sell date
+                  });
+                  setState(() {
+                    // Update state if necessary
+                  });
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ProfilePage(
+                        initialMoney: initialMoney,
+                        boughtStocks: boughtStocks,
+                        symbol: symbol,
+                        shares: shares,
+                        totalCost: -totalCost,
+                        type: 'Sell',
+                        maxShares: maxShares, // Pass maxShares here
+                      ),
+                    ),
+                  );
+                  Navigator.of(context).pop(); // Close the dialog
+                } else {
+                  // Show alert dialog if the number of shares exceeds the maximum
+                  showDialog(
+                    context: context,
+                    builder: (BuildContext context) {
+                      return AlertDialog(
+                        title: Text("Insufficient Shares"),
+                        content: Text("You don't have enough shares to sell."),
+                        actions: <Widget>[
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                            },
+                            child: Text("OK"),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                }
+              },
+              child: Text("Sell"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 
   double _calculateCost(String shares, double currentClosePrice) {
     int numberOfShares = int.tryParse(shares) ?? 0;
@@ -98,7 +358,6 @@ class _HomePageState extends State<HomePage> {
     return 0.0; // Return a double value
   }
 
-//override 
  
  @override
 Widget build(BuildContext context) {
