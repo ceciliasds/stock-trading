@@ -30,6 +30,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  http:
+  syncfusion_flutter_charts: ^19.3.55
+  intl: ^0.17.0
+  flutter_spinkit: ^5.0.0
+  url_launcher: ^6.0.6
 
 
   # The following adds the Cupertino Icons font to your application.
