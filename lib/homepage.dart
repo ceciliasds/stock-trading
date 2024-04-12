@@ -7,7 +7,6 @@ import 'profile.dart';
 import 'package:intl/intl.dart';
 import 'company.dart';
 
-
 class HomePage extends StatefulWidget {
   @override
   _HomePageState createState() => _HomePageState();
@@ -58,6 +57,23 @@ class _HomePageState extends State<HomePage> {
           stockData = []; // Clear the stockData list
           this.symbol = ''; // Reset the symbol
         });
+        showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: Text('Symbol Not Found'),
+              content: Text('The symbol $symbol was not found.'),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                  child: Text("OK"),
+                ),
+              ],
+            );
+          },
+        );
       }
     } else {
       throw Exception('Failed to load stock data');
@@ -86,8 +102,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-
-void _openTradeModal(String symbol) {
+  void _openTradeModal(String symbol) {
     print('Opening trade modal'); // Debug print
 
     showDialog(
@@ -95,8 +110,8 @@ void _openTradeModal(String symbol) {
       builder: (BuildContext context) {
         return AlertDialog(
           title: Text('Trade $symbol'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
+          content: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               ElevatedButton(
                 onPressed: () {
@@ -105,7 +120,13 @@ void _openTradeModal(String symbol) {
                   });
                   _showBuyModal(symbol, _buySharesController);
                 },
-                child: Text('Buy'),
+                style: ButtonStyle(
+                  backgroundColor: MaterialStateProperty.all<Color>(Colors.green),
+                ),
+                child: Text(
+                  'Buy',
+                  style: TextStyle(color: Colors.white),
+                ),
               ),
               ElevatedButton(
                 onPressed: () {
@@ -114,7 +135,13 @@ void _openTradeModal(String symbol) {
                   });
                   _showSellModal(symbol, _sellSharesController);
                 },
-                child: Text('Sell'),
+                style: ButtonStyle(
+                  backgroundColor: MaterialStateProperty.all<Color>(Colors.red),
+                ),
+                child: Text(
+                  'Sell',
+                  style: TextStyle(color: Colors.white),
+                ),
               ),
             ],
           ),
@@ -131,111 +158,143 @@ void _openTradeModal(String symbol) {
     );
   }
 
-void _showBuyModal(String symbol, TextEditingController controller) {
-  showDialog(
-    context: context,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        title: Text("Buy Stocks"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                hintText: 'Enter number of shares...',
+
+
+  void _showBuyModal(String symbol, TextEditingController controller) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text("Buy Stocks"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  hintText: 'Enter number of shares...',
+                ),
+              ),
+              SizedBox(height: 10),
+              FutureBuilder(
+                future: fetchCurrentClosePrice(symbol),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return CircularProgressIndicator();
+                  } else if (snapshot.hasError) {
+                    return Text('Error: ${snapshot.error}');
+                  } else {
+                    double currentClosePrice = snapshot.data ?? 0.0;
+                    int numberOfShares = int.tryParse(controller.text) ?? 0;
+                    double totalCost = _calculateCost(numberOfShares.toString(), currentClosePrice);
+                    return Text('Total Cost: \$${totalCost.toStringAsFixed(2)}');
+                  }
+                },
+              ),
+            ],
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                int shares = int.tryParse(controller.text) ?? 0;
+                double currentClosePrice = await fetchCurrentClosePrice(symbol);
+                double cost = _calculateCost(shares.toString(), currentClosePrice);
+
+                // Check if the user has enough buying power to make the purchase
+                double remainingBuyingPower = initialMoney - boughtStocks.fold(0, (sum, stock) {
+                  if (stock['type'] == 'Buy') {
+                    return sum + stock['cost'];
+                  } else {
+                    return sum;
+                  }
+                });
+
+                if (shares > 0 && cost <= remainingBuyingPower) { // Check if cost is less than or equal to remainingBuyingPower
+                  String formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+                  boughtStocks.add({
+                    'symbol': symbol,
+                    'shares': shares,
+                    'cost': cost,
+                    'pricePerStock': currentClosePrice,
+                    'type': 'Buy',
+                    'date': formattedDate,
+                  });
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ProfilePage(
+                        initialMoney: initialMoney,
+                        boughtStocks: boughtStocks,
+                        symbol: symbol,
+                        shares: shares,
+                        totalCost: cost,
+                        type: 'Buy',
+                        maxShares: maxShares,
+                      ),
+                    ),
+                  );
+                  setState(() {
+                    canSell = true;
+                    controller.clear();
+                    symbol = '';
+                  });
+                } else {
+                  showDialog(
+                    context: context,
+                    builder: (BuildContext context) {
+                      return AlertDialog(
+                        title: Text("Insufficient Buying Power"),
+                        content: Text("You don't have enough buying power to make this purchase."),
+                        actions: <Widget>[
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                            },
+                            child: Text("OK"),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                }
+                Navigator.of(context).pop();
+              },
+              style: ButtonStyle(
+                backgroundColor: MaterialStateProperty.all<Color>(Colors.green),
+              ),
+              child: Text(
+                'Buy',
+                style: TextStyle(color: Colors.white),
               ),
             ),
-            SizedBox(height: 10),
-            FutureBuilder(
-              future: fetchCurrentClosePrice(symbol),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return CircularProgressIndicator();
-                } else if (snapshot.hasError) {
-                  return Text('Error: ${snapshot.error}');
-                } else {
-                  double currentClosePrice = snapshot.data ?? 0.0;
-                  int numberOfShares = int.tryParse(controller.text) ?? 0;
-                  double totalCost = _calculateCost(numberOfShares.toString(), currentClosePrice);
-                  return Text('Total Cost: \$${totalCost.toStringAsFixed(2)}');
-                }
-              },
-            ),
           ],
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: Text("Cancel"),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              int shares = int.tryParse(controller.text) ?? 0;
-              double currentClosePrice = await fetchCurrentClosePrice(symbol);
-              double cost = _calculateCost(shares.toString(), currentClosePrice);
+        );
+      },
+    );
+  }
 
-              if (shares > 0) {
-                // Get the current date and format it
-                String formattedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-
-                // Add the purchase details along with the date
-                boughtStocks.add({
-                'symbol': symbol,
-                'shares': shares,
-                'cost': cost,
-                'pricePerStock': currentClosePrice,
-                'type': 'Buy',
-                'date': formattedDate,
-              });
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => ProfilePage(
-                    initialMoney: initialMoney,
-                    boughtStocks: boughtStocks,
-                    symbol: symbol,
-                    shares: shares,
-                    totalCost: cost,
-                    type: 'Buy',
-                    maxShares: maxShares,
-                  ),
-                ),
-              );
-                setState(() {
-                  canSell = true;
-                  // Reset state
-                  controller.clear();
-                  symbol = ''; // Reset symbol
-                });
-              }
-              Navigator.of(context).pop();
-            },
-            child: Text("Buy"),
-          ),
-        ],
-      );
-    },
-  );
-}
 
   void _showSellModal(String symbol, TextEditingController controller) {
     int totalBoughtShares = boughtStocks.isEmpty
         ? 0
         : boughtStocks
-            .where((stock) => stock['symbol'] == symbol && stock['type'] == 'Buy')
-            .map<int>((stock) => stock['shares'])
-            .fold(0, (previousValue, element) => previousValue + element);
+        .where((stock) => stock['symbol'] == symbol && stock['type'] == 'Buy')
+        .map<int>((stock) => stock['shares'])
+        .fold(0, (previousValue, element) => previousValue + element);
 
     int totalSoldShares = boughtStocks.isEmpty
         ? 0
         : boughtStocks
-            .where((stock) => stock['symbol'] == symbol && stock['type'] == 'Sell')
-            .map<int>((stock) => stock['shares'])
-            .fold(0, (previousValue, element) => previousValue + element);
+        .where((stock) => stock['symbol'] == symbol && stock['type'] == 'Sell')
+        .map<int>((stock) => stock['shares'])
+        .fold(0, (previousValue, element) => previousValue + element);
 
     int maxShares = totalBoughtShares - totalSoldShares;
 
@@ -297,7 +356,7 @@ void _showBuyModal(String symbol, TextEditingController controller) {
                   boughtStocks.add({
                     'symbol': symbol,
                     'shares': shares, // Negative shares indicate selling
-                    'cost': -totalCost, // Negative cost for selling
+                    'cost': totalCost, // Negative cost for selling
                     'pricePerStock': currentClosePrice,
                     'type': 'Sell',
                     'date': formattedDate, // Include the sell date
@@ -341,7 +400,13 @@ void _showBuyModal(String symbol, TextEditingController controller) {
                   );
                 }
               },
-              child: Text("Sell"),
+              style: ButtonStyle(
+                backgroundColor: MaterialStateProperty.all<Color>(Colors.red),
+              ),
+              child: Text(
+                'Sell',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
           ],
         );
@@ -358,79 +423,78 @@ void _showBuyModal(String symbol, TextEditingController controller) {
     return 0.0; // Return a double value
   }
 
- 
- @override
-Widget build(BuildContext context) {
-  return Scaffold(
-    backgroundColor: Color.fromARGB(255, 26, 67, 113),
-    appBar: AppBar(
-      backgroundColor: Color.fromARGB(255, 48, 67, 83),
-      title: SizedBox(
-        height: 35, // Adjust the height here
-        child: TextField(
-          controller: _searchController,
-          decoration: InputDecoration(
-            hintText: 'Enter company symbol...',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(30.0), // Adjust the roundness here
-              borderSide: BorderSide(
-                color: Colors.grey, // Adjust the border color here
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Color.fromARGB(255, 26, 67, 113),
+      appBar: AppBar(
+        backgroundColor: Color.fromARGB(255, 48, 67, 83),
+        title: SizedBox(
+          height: 35, // Adjust the height here
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Enter company symbol...',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(30.0), // Adjust the roundness here
+                borderSide: BorderSide(
+                  color: Colors.grey, // Adjust the border color here
+                ),
               ),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: EdgeInsets.fromLTRB(12, 4, 8, 4), // Adjust the padding here
+              hintStyle: TextStyle(fontSize: 14), // Adjust the font size here
             ),
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: EdgeInsets.fromLTRB(12, 4, 8, 4), // Adjust the padding here
-            hintStyle: TextStyle(fontSize: 14), // Adjust the font size here
+            style: TextStyle(fontSize: 14), // Adjust the font size here
+            onSubmitted: (value) {
+              if (value.isNotEmpty) {
+                fetchStockData(value);
+                setState(() {
+                  symbol = value; // Update the symbol variable
+                });
+              }
+            },
           ),
-          style: TextStyle(fontSize: 14), // Adjust the font size here
-          onSubmitted: (value) {
-            if (value.isNotEmpty) {
-              fetchStockData(value);
-              setState(() {
-                symbol = value; // Update the symbol variable
-              });
-            }
-          },
         ),
-      ),
-      actions: <Widget>[
-        Padding(
-          padding: EdgeInsets.only(right: 8.0), // Add margin to the right
-          child: SizedBox(
-            width: 40, // Adjust the width here
-            height: 40, // Adjust the height here
-            child: CircleAvatar(
-              backgroundColor: Colors.white, // Set background color to white
-              child: IconButton(
-                icon: Icon(Icons.person),
-                color: Colors.black, // Set icon color to black
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ProfilePage(
-                        initialMoney: 1000, // Provide the initial money here
-                        boughtStocks: boughtStocks,
-                        maxShares: maxShares,
-                        
+        actions: <Widget>[
+          Padding(
+            padding: EdgeInsets.only(right: 8.0), // Add margin to the right
+            child: SizedBox(
+              width: 40, // Adjust the width here
+              height: 40, // Adjust the height here
+              child: CircleAvatar(
+                backgroundColor: Colors.white, // Set background color to white
+                child: IconButton(
+                  icon: Icon(Icons.person),
+                  color: Colors.black, // Set icon color to black
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ProfilePage(
+                          initialMoney: 1000, // Provide the initial money here
+                          boughtStocks: boughtStocks,
+                          maxShares: maxShares,
+
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
             ),
           ),
-        ),
-      ],
-      automaticallyImplyLeading: false, // Disable back button
-    ),
-    body: Padding(
-  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0), // Adjust padding as needed
-  child: symbol == null || symbol.isEmpty // Modify this line
-      ? Center(
+        ],
+        automaticallyImplyLeading: false, // Disable back button
+      ),
+      body: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0), // Adjust padding as needed
+        child: symbol == null || symbol.isEmpty // Modify this line
+            ? Center(
           // Display a placeholder if symbol is null
         )
-      : SizedBox(
+            : SizedBox(
           width: double.infinity, // Set the width to match the parent width
           height: 300, // Set the desired height
           child: Container(
@@ -449,20 +513,20 @@ Widget build(BuildContext context) {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start, // Align children to the start (left side)
                       children: [
-                       GestureDetector(
-  onTap: () {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => CompanyPage(symbol: symbol),
-      ),
-    );
-  },
-  child: Text(
-    '$symbol',
-    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-  ),
-),
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => CompanyPage(symbol: symbol),
+                              ),
+                            );
+                          },
+                          child: Text(
+                            '$symbol',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                        ),
 
                         SizedBox(height: 5), // Add some space between the text
                         FutureBuilder(
@@ -483,11 +547,11 @@ Widget build(BuildContext context) {
                       ],
                     ),
                     ElevatedButton(
-  onPressed: () {
-    _openTradeModal(symbol); // Pass symbol as an argument
-  },
-  child: Text('Trade'),
-),
+                      onPressed: () {
+                        _openTradeModal(symbol); // Pass symbol as an argument
+                      },
+                      child: Text('Trade'),
+                    ),
 
                   ],
                 ),
@@ -496,18 +560,18 @@ Widget build(BuildContext context) {
                   child: Center(
                     child: stockData.isNotEmpty
                         ? SfCartesianChart(
-                            primaryXAxis: CategoryAxis(),
-                            series: <CandleSeries<Map<String, dynamic>, String>>[
-                              CandleSeries<Map<String, dynamic>, String>(
-                                dataSource: stockData,
-                                xValueMapper: (Map<String, dynamic> data, _) => data['priceDate'],
-                                lowValueMapper: (Map<String, dynamic> data, _) => data['low'],
-                                highValueMapper: (Map<String, dynamic> data, _) => data['high'],
-                                openValueMapper: (Map<String, dynamic> data, _) => data['open'],
-                                closeValueMapper: (Map<String, dynamic> data, _) => data['close'],
-                              )
-                            ],
-                          )
+                      primaryXAxis: CategoryAxis(),
+                      series: <CandleSeries<Map<String, dynamic>, String>>[
+                        CandleSeries<Map<String, dynamic>, String>(
+                          dataSource: stockData,
+                          xValueMapper: (Map<String, dynamic> data, _) => data['priceDate'],
+                          lowValueMapper: (Map<String, dynamic> data, _) => data['low'],
+                          highValueMapper: (Map<String, dynamic> data, _) => data['high'],
+                          openValueMapper: (Map<String, dynamic> data, _) => data['open'],
+                          closeValueMapper: (Map<String, dynamic> data, _) => data['close'],
+                        )
+                      ],
+                    )
                         : SizedBox(),
                   ),
                 ),
@@ -515,9 +579,9 @@ Widget build(BuildContext context) {
             ),
           ),
         ),
-),
+      ),
 
-  );
+    );
 
 
 
