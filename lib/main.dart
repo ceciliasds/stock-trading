@@ -50,7 +50,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
         children: [
           // Background image
           Image.asset(
-            'asset/images/bgstock.jpg',
+            'images/bgstock.jpg',
             fit: BoxFit.cover,
             width: double.infinity,
             height: double.infinity,
